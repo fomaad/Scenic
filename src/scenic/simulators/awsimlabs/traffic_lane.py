@@ -2,10 +2,11 @@ from enum import Enum
 import numpy as np
 from scenic.simulators.awsimlabs import utils
 from scenic.core.regions import PolygonalRegion, PolylineRegion
+from scenic.core.type_support import *
 from scenic.core.vectors import Vector
 
 class TurnDirection(Enum):
-    NULL = 0
+    UNDEFINED = 0
     STRAIGHT = 1
     LEFT = 2
     RIGHT = 3
@@ -14,18 +15,24 @@ class LocationType(Enum):
     PRIVATE = 0
     URBAN = 1
 
+class TrafficParticipant(Enum):
+    UNDEFINED = 0
+    VEHICLE = 1
+    PEDESTRIAN = 2
+
 # Represent a traffic lane
 class TrafficLane:
     def __init__(self, id, turn_direction:TurnDirection, speed_limit: float,
-                 left_coodrs, right_coords, location=LocationType.URBAN):
+                 left_coords, right_coords, location=LocationType.URBAN, participant=TrafficParticipant.UNDEFINED):
         """
 
         """
         self.id = id
         self.turn_direction = turn_direction
         self.speed_limit = speed_limit
-        self.left_coords = left_coodrs
+        self.left_coords = left_coords
         self.right_coords = right_coords
+        self.participant = participant
 
         self.next_lanes = []
         self.prev_lanes = []
@@ -62,7 +69,7 @@ class TrafficLane:
         return PolygonalRegion(points = poly_2D_coords)
     
     def is_intersection_lane(self):
-        return self.turn_direction != TurnDirection.NULL
+        return self.turn_direction != TurnDirection.UNDEFINED
     
     def get_2D_waypoints(self):
         return [(x,y) for (x,y,_) in self.way_points]
@@ -87,7 +94,7 @@ class TrafficLane:
             if projection_inside_segment:
                 return Vector(float(proj[0]), float(proj[1]), float(proj[2])), i    
         print(f'[ERROR] Cannot correct the postion {point2d} to the lane #{self.id} center line.')
-        return None, -1
+        return Vector(px,py,0), -1
 
     def is_point_on_center_line(self, point, tolerance=1e-3):
         """
@@ -115,40 +122,3 @@ class TrafficLane:
         next_ids = [entry.id for entry in self.next_lanes]
         prev_ids = [entry.id for entry in self.prev_lanes]
         return f'Lane #{self.id}, next: {next_ids}, prev: {prev_ids}'
-
-# for debugging
-def plot_traffic_lanes(lanes, point1, point2):
-    import matplotlib.pyplot as plt
-    fig, ax = plt.subplots(figsize=(12, 12))  # 1:2 height:width ratio
-
-    for lane in lanes:
-        # Unpack (x, y) from 3D tuples
-        left_x, left_y = zip(*[(x, y) for x, y, _ in lane.left_coords])
-        right_x, right_y = zip(*[(x, y) for x, y, _ in lane.right_coords])
-        center_x, center_y = zip(*[(x, y) for x, y, _ in lane.way_points])
-
-        ax.plot(left_x, left_y, 'r--', linewidth=1)
-        ax.plot(right_x, right_y, 'b--', linewidth=1)
-        ax.plot(center_x, center_y, 'g-', linewidth=1)
-        ax.scatter(center_x, center_y, c='green', s=10, label=f'Lane {lane.id}')
-
-    px1, py1 = point1
-    px2, py2 = point2
-
-    # plt.plot(point[0], point[1],'ro') 
-    plt.plot(px1,py1,'x') 
-    plt.plot(px2,py2,'ro') 
-
-    ax.set_title("Traffic Lanes")
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
-    ax.axis('equal')
-    ax.set_aspect(1)        # Set Y/X ratio
-    ax.grid(True)
-
-    # Optional: prevent duplicate labels in legend
-    handles, labels = ax.get_legend_handles_labels()
-    unique = dict(zip(labels, handles))
-    ax.legend(unique.values(), unique.keys())
-
-    plt.show()

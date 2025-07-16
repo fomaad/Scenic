@@ -1,7 +1,7 @@
 from scenic.core.workspaces import *
 from scenic.simulators.awsimlabs.network import *
 from scenic.simulators.awsimlabs.simulator import AWSIMLabsSimulator
-# from scenic.simulators.awsimlabs.behaviors import *
+from scenic.simulators.awsimlabs.behaviors import *
 
 network = load_map(globalParameters.map)
 simulator AWSIMLabsSimulator(network)
@@ -19,6 +19,7 @@ class AWSIMObject:
     Abstract class for objects.
     """
     name: string
+    isVehicle: bool
 
 class Vehicle(AWSIMObject): 
     """
@@ -32,6 +33,7 @@ class Vehicle(AWSIMObject):
     width: 2
     length: 4.5
     isEgo: False
+    isVehicle: True
 
 class Car(Vehicle):
     bodyStyle: Uniform("taxi", "hatchback", "smallCar", "truck", "van")
@@ -41,3 +43,6 @@ class EgoCar(Vehicle):
     width: 2.186
     length: 4.886
     name: "ego"
+
+class Waypoint(OrientedPoint):
+    heading: roadDirection at self.position

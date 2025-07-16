@@ -54,7 +54,7 @@ class AWSIMLabsSimulation(simulators.Simulation):
     
     def create_ego_in_simulator(self, ego_obj):
         print(f'Ego postion: {ego_obj.position}, heading: {ego_obj.heading}-{ego_obj.heading*180/math.pi}')
-        _, upd_pos, _ = self.simulator.network.find_lane_and_correct_position(ego_obj.position)
+        upd_pos = self.simulator.network.correct_elevation(ego_obj.position)
 
         msg = PoseWithCovarianceStamped()
         msg.header.stamp = self.simulator.node.get_clock().now().to_msg()
@@ -74,7 +74,7 @@ class AWSIMLabsSimulation(simulators.Simulation):
 
     def spawn_npc_in_simulator(self, npc):
         print(f'NPC postion: {npc.position}, heading {npc.heading}-{npc.heading*180/math.pi}')
-        _, upd_pos, _ = self.simulator.network.find_lane_and_correct_position(npc.position)
+        upd_pos = self.simulator.network.correct_elevation(npc.position)
 
         publisher = self.simulator.node.create_publisher(
             std_msgs.msg.String,
@@ -101,37 +101,3 @@ class AWSIMLabsSimulation(simulators.Simulation):
         publisher.publish(msg)
         rclpy.spin_once(self.simulator.node, timeout_sec=0.1)
         print(f"spwaned NPC {npc.name}")
-
-    def set_ego_destination(self, ego_obj, goal_position):
-        _, upd_pos, _ = self.simulator.network.find_lane_and_correct_position(goal_position)
-
-        publisher = self.simulator.node.create_publisher(
-            PoseStamped,
-            '/planning/mission_planning/goal',
-            10
-        )
-        msg = PoseStamped()
-        msg.header.stamp = self.simulator.node.get_clock().now().to_msg()
-        msg.header.frame_id = 'map'
-        msg.pose.position.x = upd_pos.x
-        msg.pose.position.y = upd_pos.y
-        msg.pose.position.z = upd_pos.z
-
-        quaternion = utils.yaw_to_quaternion(goal_position.yaw)
-        msg.pose.orientation = quaternion
-
-        publisher.publish(msg)
-        rclpy.spin_once(self.simulator.node, timeout_sec=0.1)
-
-    def send_engage_cmd(self, ego_obj):
-        publisher = self.simulator.node.create_publisher(
-            Engage,
-            '/autoware/engage',
-            10
-        )
-        msg = Engage()
-        msg.stamp = self.simulator.node.get_clock().now().to_msg()
-        msg.engage = True
-
-        publisher.publish(msg)
-        rclpy.spin_once(self.simulator.node, timeout_sec=0.1)

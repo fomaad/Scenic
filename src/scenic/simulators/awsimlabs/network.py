@@ -5,6 +5,23 @@ from scenic.core.vectors import Orientation, VectorField
 from scenic.core.distributions import *
 from scenic.simulators.awsimlabs.traffic_lane import *
 
+# some filter conditions
+no_private_lane = lambda lane: lane.location != LocationType.PRIVATE
+no_pedestrian_lane = lambda lane: lane.participant != TrafficParticipant.PEDESTRIAN
+
+"""
+There exist some lanes in the OSM map that are not visible in AWSIM-Labs simulator.
+This filter function check if a given lane (in OSM map) is visible in AWSIM-Labs or not
+"""
+def is_visible_lane_in_awsimlabs(lane):
+    poly_coords = lane.left_coords + lane.right_coords[::-1]
+    for vertex in poly_coords:
+        if vertex[0] < 81280 or vertex[0] > 81880:
+            return False
+        if vertex[1] < 49910 or vertex[1] > 50700:
+            return False
+    return True
+
 class Network:
     def __init__(self, traffic_lanes):
         self.traffic_lanes = traffic_lanes
@@ -26,70 +43,48 @@ class Network:
             if entry.id == id:
                 return entry
         return None
-    
-    def road_2D_region(self, include_private_roads=False):
-        polygon_regions = []
-        for lane in self.traffic_lanes:
-            if not include_private_roads and lane.location == LocationType.PRIVATE:
-                continue
-            polygon_regions.append(lane.polygon_2d_region)
-        return PolygonalRegion.unionAll(polygon_regions)
-    
-    def road_2D_center_lines(self, include_private_roads=False):
-        line_regions = []
-        for lane in self.traffic_lanes:
-            if not include_private_roads and lane.location == LocationType.PRIVATE:
-                continue
-            line_regions.append(PolylineRegion(points=lane.get_2D_waypoints()))
-        return PolylineRegion.unionAll(line_regions)
 
-    def private_2D_roads(self):
-        line_regions = []
+    def extract_lanes(self, *conditions):
+        """
+        *conditions: each one is a function lambda lane: ...
+        """
+        result = []
         for lane in self.traffic_lanes:
-            if lane.location == LocationType.PRIVATE:
-                line_regions.append(PolylineRegion(points=lane.get_2D_waypoints()))
-        return PolylineRegion.unionAll(line_regions)
-    
-    def intersection_2D_center_line_region(self, include_private_roads=False):
-        line_regions = []
-        for lane in self.traffic_lanes:
-            if not lane.is_intersection_lane():
-                continue
-            if not include_private_roads and lane.location == LocationType.PRIVATE:
-                continue
-            line_regions.append(PolylineRegion(points=lane.get_2D_waypoints()))
-        return PolylineRegion.unionAll(line_regions)
+            if all(condition(lane) for condition in conditions):
+                result.append(lane)
+        return result
 
-    def non_intersection_2D_center_line_region(self, include_private_roads=False):
-        line_regions = []
-        for lane in self.traffic_lanes:
-            if lane.is_intersection_lane():
-                continue
-            if not include_private_roads and lane.location == LocationType.PRIVATE:
-                continue
-            line_regions.append(PolylineRegion(points=lane.get_2D_waypoints()))
-        return PolylineRegion.unionAll(line_regions)
-    
-    def non_intersection_2D_road_region(self, include_private_roads=False):
-        polygon_regions = []
-        for lane in self.traffic_lanes:
-            if lane.is_intersection_lane():
-                continue
-            if not include_private_roads and lane.location == LocationType.PRIVATE:
-                continue
-            polygon_regions.append(lane.polygon_2d_region)
+    def extract_2D_road(self):
+        return self.extract_lanes( no_pedestrian_lane, no_private_lane, is_visible_lane_in_awsimlabs)
+
+    def extract_non_intersection_2D_road(self):
+        non_intersection = lambda lane: not lane.is_intersection_lane()
+        return self.extract_lanes(no_pedestrian_lane, no_private_lane, is_visible_lane_in_awsimlabs, non_intersection)
+
+    def extract_intersection_2D_road(self):
+        intersection_only = lambda lane: lane.is_intersection_lane()
+        return self.extract_lanes(no_pedestrian_lane, no_private_lane, is_visible_lane_in_awsimlabs, intersection_only)
+
+    def road_2D_region(self):
+        filtered_lanes = self.extract_2D_road()
+        polygon_regions = [lane.polygon_2d_region for lane in filtered_lanes]
         return PolygonalRegion.unionAll(polygon_regions)
 
-    def intersection_2D_road_region(self, include_private_roads=False):
-        polygon_regions = []
-        for lane in self.traffic_lanes:
-            if not lane.is_intersection_lane():
-                continue
-            if not include_private_roads and lane.location == LocationType.PRIVATE:
-                continue
-            polygon_regions.append(lane.polygon_2d_region)
+    def non_intersection_2D_road_region(self):
+        filtered_lanes = self.extract_non_intersection_2D_road()
+        polygon_regions = [lane.polygon_2d_region for lane in filtered_lanes]
         return PolygonalRegion.unionAll(polygon_regions)
 
+    def intersection_2D_road_region(self):
+        filtered_lanes = self.extract_intersection_2D_road()
+        polygon_regions = [lane.polygon_2d_region for lane in filtered_lanes]
+        return PolygonalRegion.unionAll(polygon_regions)
+
+    def road_2D_center_lines(self):
+        filtered_lanes = self.extract_2D_road()
+        line_regions = [PolylineRegion(points=lane.get_2D_waypoints()) for lane in filtered_lanes]
+        return PolylineRegion.unionAll(line_regions)
+    
     def find_lane_for_point(self, point2d):
         for lane in self.traffic_lanes:
             if lane.is_2dpoint_on_lane(point2d):
@@ -97,18 +92,21 @@ class Network:
         return None
     
     def find_lane_and_correct_position(self, point):
-        if isinstance(point, Vector):
-            point2d = (point.x, point.y)
-        elif isinstance(point, np.ndarray):
-            point2d = (float(point[0]), float(point[1]))
-        else:
-            point2d = point
+        """
+        mainly to correct the z-value (elevation) of the given 2D $point
+        """
+        vec = toVector(point)
+        point2d = (vec.x, vec.y)
         lane = self.find_lane_for_point(point2d)
         if not lane:
             raise RejectionException(f"The position {point2d} is not inside any lane region.")
         point3d, wp_id = lane.correct_position(point2d)
         return lane, point3d, wp_id
-    
+
+    def correct_elevation(self, point2d):
+        _, point3d, _ = self.find_lane_and_correct_position(point2d)
+        return point3d
+
     def precisely_find_lane_for_point(self, point2D, tolerance=1e-3):
         """
         DEPRECATED
@@ -157,6 +155,13 @@ def load_map(osm_file_path):
             turn_direction = parse_turn_direction(tags.get('turn_direction'))
             location_type_str = tags.get('location')
             location_type = LocationType.URBAN if not location_type_str or location_type_str=="urban" else LocationType.PRIVATE
+
+            participant = TrafficParticipant.UNDEFINED
+            if tags.get('participant:vehicle'):
+                participant = TrafficParticipant.VEHICLE
+            elif tags.get('participant:pedestrian'):
+                participant = TrafficParticipant.PEDESTRIAN
+
             left = None
             right = None
             for member in relation.findall('member'):
@@ -176,7 +181,8 @@ def load_map(osm_file_path):
                                          speed_limit,
                                          left_coords,
                                          right_coords,
-                                         location_type))
+                                         location_type,
+                                         participant))
 
     return Network(parse_lane_connection(lanes))
 
@@ -204,11 +210,56 @@ def refer_to_same_point(left_coord1, right_coord1, left_coord2, right_coord2):
 
 def parse_turn_direction(turn_direction):
     if not turn_direction:
-        return TurnDirection.NULL
+        return TurnDirection.UNDEFINED
     elif turn_direction == "left":
         return TurnDirection.LEFT
     elif turn_direction == "right":
         return TurnDirection.RIGHT
     elif turn_direction == "straight":
         return TurnDirection.STRAIGHT
-    return TurnDirection.NULL
+    return TurnDirection.UNDEFINED
+
+
+# for debugging
+def plot_traffic_lanes(lanes, point1=None, point2=None):
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(24, 24))  # 1:2 height:width ratio
+
+    for lane in lanes:
+        # Unpack (x, y) from 3D tuples
+        left_x, left_y = zip(*[(x, y) for x, y, _ in lane.left_coords])
+        right_x, right_y = zip(*[(x, y) for x, y, _ in lane.right_coords])
+        center_x, center_y = zip(*[(x, y) for x, y, _ in lane.way_points])
+
+        # ax.plot(left_x, left_y, 'r--', linewidth=1)
+        # ax.plot(right_x, right_y, 'b--', linewidth=1)
+        ax.plot(center_x, center_y, 'g-', linewidth=2)
+        ax.scatter(center_x, center_y, c='green', s=10, label=f'Lane {lane.id}')
+
+    # px1, py1 = point1
+    # px2, py2 = point2
+
+    # plt.plot(point[0], point[1],'ro')
+    # plt.plot(px1,py1,'x')
+    # plt.plot(px2,py2,'ro')
+
+    ax.set_title("Traffic Lanes")
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.axis('equal')
+    ax.set_aspect(1)        # Set Y/X ratio
+    ax.grid(True)
+
+    # Optional: prevent duplicate labels in legend
+    handles, labels = ax.get_legend_handles_labels()
+    unique = dict(zip(labels, handles))
+    ax.legend(unique.values(), unique.keys())
+
+    plt.show()
+
+if __name__ == '__main__':
+    import os
+    script_dir = os.path.dirname(__file__)
+    map_path = os.path.join(script_dir, 'map_example/lanelet2_map.osm')
+    network = load_map(map_path)
+    plot_traffic_lanes(network.extract_2D_road())

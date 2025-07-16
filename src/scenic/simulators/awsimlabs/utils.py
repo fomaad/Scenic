@@ -1,6 +1,6 @@
 import numpy as np
 import math
-from geometry_msgs.msg import Quaternion
+import geometry_msgs.msg
 
 def distance_point_to_segment_2d(px, py, x1, y1, x2, y2):
     """
@@ -51,7 +51,7 @@ def project_point_to_line_3d(P, A, B):
 
 def yaw_to_quaternion(yaw):
     """Convert a yaw angle (in radians) into a ROS2 Quaternion message."""
-    q = Quaternion()
+    q = geometry_msgs.msg.Quaternion()
     q.x = 0.0
     q.y = 0.0
     q.z = math.sin(yaw / 2.0)
@@ -62,3 +62,17 @@ def direction_vector_to_quaternion(dx,dy):
     """Return quaternion aligned to the given 2D direction vector (dx, dy)."""
     yaw = math.atan2(dy, dx)  # direction angle in radians
     return yaw_to_quaternion(yaw)
+
+def scenic_point_to_ros_point(input):
+    p = geometry_msgs.msg.Point()
+    p.x = input.x
+    p.y = input.y
+    p.z = input.z
+    return p
+
+def scenic_point_to_dict(input):
+    return {
+        'x': input.x,
+        'y': input.y,
+        'z': input.z
+    }
