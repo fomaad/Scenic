@@ -1,3 +1,6 @@
+import math
+import time
+
 from scenic.domains.driving.actions import *
 import utils
 import json
@@ -31,11 +34,13 @@ class SetDestinationAction(Action):
         msg.header.frame_id = 'map'
         msg.pose.position = utils.scenic_point_to_ros_point(upd_pos)
 
-        quaternion = utils.yaw_to_quaternion(self.dest.yaw)
+        quaternion = utils.yaw_to_quaternion(self.dest.heading + math.pi/2)
         msg.pose.orientation = quaternion
 
         publisher.publish(msg)
         rclpy.spin_once(simulation.simulator.node, timeout_sec=0.1)
+        print('set Ego destination done')
+        time.sleep(5)
 
     def send_engage_cmd(self, ego_obj, simulation):
         publisher = simulation.simulator.node.create_publisher(
@@ -105,10 +110,16 @@ class FollowWaypointsAction(Action):
         is_acceleration_defined = self.acceleration is not None
         is_deceleration_defined = self.deceleration is not None
         ros_wps = []
+        print("Original waypoints: ")
         for waypoint in self.waypoints:
-            corrected_position = simulation.simulator.network.correct_elevation(waypoint.position)
+            print(f"{waypoint.position}, heading: {waypoint.toHeading()}")
+            corrected_position = simulation.simulator.network.correct_elevation(waypoint)
             ros_wps.append(utils.scenic_point_to_dict(corrected_position))
-        
+
+        print("Corrected waypoints: ")
+        for waypoint in ros_wps:
+            print(f"{waypoint}")
+
         my_dict = {
             "target": npc_obj.name,
             "waypoints": ros_wps,

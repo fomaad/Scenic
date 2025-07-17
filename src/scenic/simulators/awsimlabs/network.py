@@ -1,6 +1,8 @@
 import sys
 import xml.etree.ElementTree as ET
 import math
+
+from scenic.core.object_types import OrientedPoint, Point
 from scenic.core.vectors import Orientation, VectorField
 from scenic.core.distributions import *
 from scenic.simulators.awsimlabs.traffic_lane import *
@@ -85,27 +87,53 @@ class Network:
         line_regions = [PolylineRegion(points=lane.get_2D_waypoints()) for lane in filtered_lanes]
         return PolylineRegion.unionAll(line_regions)
     
-    def find_lane_for_point(self, point2d):
-        for lane in self.traffic_lanes:
-            if lane.is_2dpoint_on_lane(point2d):
-                return lane
-        return None
-    
-    def find_lane_and_correct_position(self, point):
+    def find_lane_for_point(self, point2d, heading: Optional[float]=None, heading_tolerance=0.174):
+        """
+        :param point2d:
+        :param heading:
+        """
+        lanes = [lane for lane in self.traffic_lanes if lane.is_2dpoint_on_lane(point2d, heading, heading_tolerance)]
+        if not lanes:
+            print('No lane found')
+            return None
+        if len(lanes) > 1:
+            lane_ids = [lane.id for lane in lanes]
+            print(f'Found {len(lanes)} possible lanes ({lane_ids}) containing point {point2d}. '
+                  f'By default, the lower-elevation lane was selected.')
+            min_z = float('inf')
+            result = None
+            for lane in lanes:
+                if lane.way_points[0][2] < min_z:
+                    min_z = lane.way_points[0][2]
+                    result = lane
+            return result
+
+        return lanes[0]
+
+    def find_lane_and_correct_position(self, point, heading: Optional[float]=None, heading_tolerance=0.174):
         """
         mainly to correct the z-value (elevation) of the given 2D $point
         """
         vec = toVector(point)
         point2d = (vec.x, vec.y)
-        lane = self.find_lane_for_point(point2d)
+        lane = self.find_lane_for_point(point2d, heading, heading_tolerance)
         if not lane:
             raise RejectionException(f"The position {point2d} is not inside any lane region.")
         point3d, wp_id = lane.correct_position(point2d)
         return lane, point3d, wp_id
 
-    def correct_elevation(self, point2d):
-        _, point3d, _ = self.find_lane_and_correct_position(point2d)
+    def do_correct_elevation(self, point2d, heading: Optional[float]=None, heading_tolerance=0.174):
+        _, point3d, _ = self.find_lane_and_correct_position(point2d, heading, heading_tolerance)
         return point3d
+
+    def correct_elevation(self, point):
+        if isinstance(point, OrientedPoint):
+            return self.correct_elevation_for_orientedpoint(point)
+        return self.do_correct_elevation(point)
+
+    def correct_elevation_for_orientedpoint(self, orientedpoint: OrientedPoint, heading_tolerance=0.174):
+        pos = orientedpoint.position
+        return self.do_correct_elevation((pos.x,pos.y), orientedpoint.toHeading(), heading_tolerance)
 
     def precisely_find_lane_for_point(self, point2D, tolerance=1e-3):
         """

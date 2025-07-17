@@ -1,5 +1,8 @@
 from enum import Enum
 import numpy as np
+from typing import Optional
+import math
+
 from scenic.simulators.awsimlabs import utils
 from scenic.core.regions import PolygonalRegion, PolylineRegion
 from scenic.core.type_support import *
@@ -74,12 +77,30 @@ class TrafficLane:
     def get_2D_waypoints(self):
         return [(x,y) for (x,y,_) in self.way_points]
     
-    def is_2dpoint_on_lane(self, point2d):
+    def is_2dpoint_on_lane(self, point2d, heading: Optional[float]=None, heading_tolerance=0.15):
         """
         point2d can be a tuple (x,y)
+        It is recommend to include the heading param (in radians)
         """
-        return self.polygon_2d_region.containsPoint(point2d)
-    
+        if not self.polygon_2d_region.containsPoint(point2d):
+            return False
+        if heading is None:
+            return True
+
+        # check if the lane direction at $point2d same as the given $heading angle
+        _, wp_id = self.correct_position(point2d)
+        if wp_id == -1:
+            # use WP0 -> WP1 as the lane direction
+            wp_id = 0
+
+        direction = self.way_points[wp_id + 1] - self.way_points[wp_id]
+        yaw = math.atan2(direction[1], direction[0]) - math.pi/2
+        print(f'yaw: {yaw}')
+        if yaw < -math.pi:
+            yaw += 2*math.pi
+        print(f'yaw: {yaw}, heading: {heading}')
+        return abs(heading - yaw) < heading_tolerance
+
     def correct_position(self, point2d):
         """
         REQUIREMENT: point2d must be inside the lane.

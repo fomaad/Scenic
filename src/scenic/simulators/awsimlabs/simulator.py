@@ -2,7 +2,7 @@ import scenic.core.simulators as simulators
 import utils
 from scenic.simulators.awsimlabs.network import *
 
-import math, json
+import math, json, time
 import rclpy
 from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped
 from autoware_vehicle_msgs.msg import Engage
@@ -44,7 +44,6 @@ class AWSIMLabsSimulation(simulators.Simulation):
     def destroy(self):
         # Clean up ROS2 node, etc.
         rclpy.shutdown()
-        pass
 
     def createObjectInSimulator(self, obj):
         if obj.isEgo:
@@ -53,8 +52,9 @@ class AWSIMLabsSimulation(simulators.Simulation):
             self.spawn_npc_in_simulator(obj)
     
     def create_ego_in_simulator(self, ego_obj):
-        print(f'Ego postion: {ego_obj.position}, heading: {ego_obj.heading}-{ego_obj.heading*180/math.pi}')
-        upd_pos = self.simulator.network.correct_elevation(ego_obj.position)
+        print(f'Ego original postion: {ego_obj.position}, heading angle {ego_obj.heading}')
+        upd_pos = self.simulator.network.do_correct_elevation(ego_obj.position, ego_obj.heading)
+        print(f'Ego corrected postion: {upd_pos}')
 
         msg = PoseWithCovarianceStamped()
         msg.header.stamp = self.simulator.node.get_clock().now().to_msg()
@@ -66,15 +66,23 @@ class AWSIMLabsSimulation(simulators.Simulation):
         # Convert heading (yaw) to quaternion
         # don't forget the +90deg
         quaternion = utils.yaw_to_quaternion(ego_obj.heading + math.pi/2)
-
         msg.pose.pose.orientation = quaternion
+
+        cov = [0.0] * 36
+        cov[0] = 0.25  # x
+        cov[7] = 0.25  # y
+        cov[35] = math.radians(10) ** 2  # yaw
+        msg.pose.covariance = cov
+
         self.simulator.EgoPosePublisher.publish(msg)
         rclpy.spin_once(self.simulator.node, timeout_sec=0.1)
         print("spawned Ego")
+        time.sleep(5)
 
     def spawn_npc_in_simulator(self, npc):
-        print(f'NPC postion: {npc.position}, heading {npc.heading}-{npc.heading*180/math.pi}')
-        upd_pos = self.simulator.network.correct_elevation(npc.position)
+        print(f'NPC original postion: {npc.position}, heading angle: {npc.heading}')
+        upd_pos = self.simulator.network.do_correct_elevation(npc.position, npc.heading)
+        print(f'NPC corrected postion: {upd_pos}')
 
         publisher = self.simulator.node.create_publisher(
             std_msgs.msg.String,
