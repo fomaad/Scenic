@@ -1,6 +1,8 @@
 import numpy as np
 import math
 import geometry_msgs.msg
+from scipy.spatial.transform import Rotation as R
+from scenic.core.vectors import Vector
 
 def distance_point_to_segment_2d(px, py, x1, y1, x2, y2):
     """
@@ -40,12 +42,23 @@ def project_point_to_line_3d(P, A, B):
     p = np.array(P)
     a = np.array(A)
     b = np.array(B)
+    if len(p) == 3 and p[2] == 0:
+        # when elevation of P is 0, calculation is made in 2D space
+        p2, a2, b2 = p[0:2], a[0:2], b[0:2]
+        proj2d, proj_inside_segment = project_point_to_line_3d(p2,a2,b2)
+        if np.dot(proj2d - a2, b2 - a2) < 0:
+            # a2 is between proj2d and b2
+            t = np.linalg.norm(proj2d - b2) / np.linalg.norm(a2 - b2)
+            return b + t * (a - b), proj_inside_segment
+        else:
+            t = np.linalg.norm(proj2d - a2) / np.linalg.norm(b2 - a2)
+            return a + t * (b - a), proj_inside_segment
     ab = b - a
     if np.allclose(ab, 0):
         return np.linalg.norm(p - a)
-    
+
     t = np.dot(p - a, ab) / np.dot(ab, ab)
-    projection_inside_segment = t>=0 and t<=1
+    projection_inside_segment = t >= 0 and t <= 1
     proj = a + t * ab
     return proj, projection_inside_segment
 
@@ -76,3 +89,24 @@ def scenic_point_to_dict(input):
         'y': input.y,
         'z': input.z
     }
+
+def quaternion2eulerangle(quaternion):
+    """
+    return a Scenic vector
+    """
+    r = R.from_quat([quaternion.x, quaternion.y, quaternion.z, quaternion.w])
+    # roll, pitch, yaw
+    angles = r.as_euler('xyz')
+    return Vector(float(angles[0]), float(angles[1]), float(angles[2]))
+
+def ros2scenic_position(pos):
+    return Vector(pos.x, pos.y)
+
+def round_float(num):
+    return round(float(num), 3)
+
+def rosstamp2time(stamp, round=False):
+    result = stamp.sec + stamp.nanosec/10**9
+    if round:
+        return round_float(result)
+    return result

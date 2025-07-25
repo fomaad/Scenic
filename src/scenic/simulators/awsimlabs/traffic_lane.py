@@ -3,6 +3,7 @@ import numpy as np
 from typing import Optional
 import math
 
+from scenic.core.geometry import normalizeAngle
 from scenic.simulators.awsimlabs import utils
 from scenic.core.regions import PolygonalRegion, PolylineRegion
 from scenic.core.type_support import *
@@ -94,11 +95,8 @@ class TrafficLane:
             wp_id = 0
 
         direction = self.way_points[wp_id + 1] - self.way_points[wp_id]
-        yaw = math.atan2(direction[1], direction[0]) - math.pi/2
-        print(f'yaw: {yaw}')
-        if yaw < -math.pi:
-            yaw += 2*math.pi
-        print(f'yaw: {yaw}, heading: {heading}')
+        yaw = normalizeAngle(math.atan2(direction[1], direction[0]) - math.pi/2)
+        # print(f'yaw: {yaw}, heading: {heading}')
         return abs(heading - yaw) < heading_tolerance
 
     def correct_position(self, point2d):

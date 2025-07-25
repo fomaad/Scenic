@@ -24,6 +24,28 @@ def is_visible_lane_in_awsimlabs(lane):
             return False
     return True
 
+"""
+These two filters extract the region of interest for our experiments.
+The region has long and straight roads
+"""
+def in_long_straight_road_region(lane):
+    poly_coords = lane.left_coords + lane.right_coords[::-1]
+    for vertex in poly_coords:
+        if vertex[0] < 81620 or vertex[0] > 81870:  # 81600 is boundary for interest region
+            return False
+        if vertex[1] < 50060 or vertex[1] > 50600:
+            return False
+    return True
+def not_east_west_direction(lane):
+    direction = lane.way_points[1] - lane.way_points[0]
+    yaw = math.atan2(direction[1], direction[0])
+    awsim_angle = math.degrees(yaw)
+    if -20 < awsim_angle < 20:
+        return False
+    if awsim_angle < -160 or awsim_angle > 160:
+        return False
+    return True
+
 class Network:
     def __init__(self, traffic_lanes):
         self.traffic_lanes = traffic_lanes
@@ -38,7 +60,7 @@ class Network:
         direction = lane.way_points[wp_id + 1] - lane.way_points[wp_id]
         yaw = math.atan2(direction[1], direction[0]) 
         # In Scenic, 0 is Oy(+) direction
-        return Orientation._fromHeading(yaw - math.pi/2) 
+        return Orientation._fromHeading(normalizeAngle(yaw - math.pi/2))
     
     def get_traffic_lane(self, id):
         for entry in self.traffic_lanes:
@@ -56,19 +78,27 @@ class Network:
                 result.append(lane)
         return result
 
-    def extract_2D_road(self):
-        return self.extract_lanes( no_pedestrian_lane, no_private_lane, is_visible_lane_in_awsimlabs)
+    def extract_vehicle_2D_road(self):
+        return self.extract_lanes(no_pedestrian_lane,
+                                  no_private_lane,
+                                  is_visible_lane_in_awsimlabs)
 
     def extract_non_intersection_2D_road(self):
         non_intersection = lambda lane: not lane.is_intersection_lane()
-        return self.extract_lanes(no_pedestrian_lane, no_private_lane, is_visible_lane_in_awsimlabs, non_intersection)
+        return self.extract_lanes(no_pedestrian_lane,
+                                  no_private_lane,
+                                  is_visible_lane_in_awsimlabs,
+                                  non_intersection)
 
     def extract_intersection_2D_road(self):
         intersection_only = lambda lane: lane.is_intersection_lane()
-        return self.extract_lanes(no_pedestrian_lane, no_private_lane, is_visible_lane_in_awsimlabs, intersection_only)
+        return self.extract_lanes(no_pedestrian_lane,
+                                  no_private_lane,
+                                  is_visible_lane_in_awsimlabs,
+                                  intersection_only)
 
-    def road_2D_region(self):
-        filtered_lanes = self.extract_2D_road()
+    def vehicle_2D_road_region(self):
+        filtered_lanes = self.extract_vehicle_2D_road()
         polygon_regions = [lane.polygon_2d_region for lane in filtered_lanes]
         return PolygonalRegion.unionAll(polygon_regions)
 
@@ -82,8 +112,26 @@ class Network:
         polygon_regions = [lane.polygon_2d_region for lane in filtered_lanes]
         return PolygonalRegion.unionAll(polygon_regions)
 
-    def road_2D_center_lines(self):
-        filtered_lanes = self.extract_2D_road()
+    def long_road_region(self):
+        filtered_lanes = self.extract_lanes(no_pedestrian_lane,
+                                            no_private_lane,
+                                            in_long_straight_road_region,
+                                            not_east_west_direction)
+        polygon_regions = [lane.polygon_2d_region for lane in filtered_lanes]
+        return PolygonalRegion.unionAll(polygon_regions)
+
+    def non_intersection_long_road_region(self):
+        non_intersection = lambda lane: not lane.is_intersection_lane()
+        filtered_lanes = self.extract_lanes(no_pedestrian_lane,
+                                            no_private_lane,
+                                            in_long_straight_road_region,
+                                            not_east_west_direction,
+                                            non_intersection)
+        polygon_regions = [lane.polygon_2d_region for lane in filtered_lanes]
+        return PolygonalRegion.unionAll(polygon_regions)
+
+    def vehicle_2D_road_center_lines(self):
+        filtered_lanes = self.extract_vehicle_2D_road()
         line_regions = [PolylineRegion(points=lane.get_2D_waypoints()) for lane in filtered_lanes]
         return PolylineRegion.unionAll(line_regions)
     
@@ -98,13 +146,13 @@ class Network:
             return None
         if len(lanes) > 1:
             lane_ids = [lane.id for lane in lanes]
-            print(f'Found {len(lanes)} possible lanes ({lane_ids}) containing point {point2d}. '
-                  f'By default, the lower-elevation lane was selected.')
-            min_z = float('inf')
+            print(f'[WARNING] Found {len(lanes)} possible lanes ({lane_ids}) containing point {point2d}. '
+                  f'By default, the highest-elevation lane was selected.')
+            max_z = -float('inf')
             result = None
             for lane in lanes:
-                if lane.way_points[0][2] < min_z:
-                    min_z = lane.way_points[0][2]
+                if lane.way_points[0][2] > max_z:
+                    max_z = lane.way_points[0][2]
                     result = lane
             return result
 
@@ -118,7 +166,9 @@ class Network:
         point2d = (vec.x, vec.y)
         lane = self.find_lane_for_point(point2d, heading, heading_tolerance)
         if not lane:
-            raise RejectionException(f"The position {point2d} is not inside any lane region.")
+            logtext = f"The position {point2d} is not inside any lane region."
+            print(f'[ERROR] {logtext}')
+            raise RejectionException(logtext)
         point3d, wp_id = lane.correct_position(point2d)
         return lane, point3d, wp_id
 
