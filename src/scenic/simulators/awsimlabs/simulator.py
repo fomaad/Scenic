@@ -18,7 +18,7 @@ from autoware_adapi_v1_msgs.srv import InitializeLocalization, ChangeOperationMo
 from aw_monitor.srv import *
 from tier4_planning_msgs.msg import VelocityLimit
 import std_msgs.msg
-from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 
 MOTION_STATE_UNKNOWN = 0
 MOTION_STATE_STOPPED = 1
@@ -36,6 +36,10 @@ OPERATION_STATE_STOP = 1
 OPERATION_STATE_AUTONOMOUS = 2
 OPERATION_STATE_LOCAL = 3
 OPERATION_STATE_REMOTE = 4
+
+SCENIC_SIM_OP_STATE_STOPPED = 1
+SCENIC_SIM_OP_STATE_RUNNING = 2
+SCENIC_SIM_OP_STATE_AUTO_MODE = 3
 
 class AWSIMLabsSimulator(simulators.Simulator):
     def __init__(self, network: Network, *args, **kwargs):
@@ -107,6 +111,17 @@ class AWSIMLabsSimulator(simulators.Simulator):
             qos_profile
         )
 
+        self.scenic_scenario_op_status_publisher = self.node.create_publisher(
+            std_msgs.msg.Int32,
+            '/scenic/scenario_op_status',
+            QoSProfile(
+                reliability=ReliabilityPolicy.RELIABLE,
+                history=HistoryPolicy.KEEP_LAST,
+                durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                depth=1
+            )
+        )
+
         # service clients
         # ground truth kinematics
         self.gt_kinematics_client = self.node.create_client(
@@ -170,6 +185,11 @@ class AWSIMLabsSimulation(simulators.Simulation):
         self.real_time = datetime.datetime.now().timestamp()
         self.real_start_time = self.real_time
 
+        # publish running signal
+        msg = std_msgs.msg.Int32()
+        msg.data = SCENIC_SIM_OP_STATE_RUNNING
+        self.simulator.scenic_scenario_op_status_publisher.publish(msg)
+
         timestep = kwargs.pop('timestep', 0.1)
         super().__init__(scene, timestep=timestep, **kwargs)
 
@@ -201,6 +221,11 @@ class AWSIMLabsSimulation(simulators.Simulation):
         if self._destroyed:
             raise RuntimeError("AWSIMLabsSimulation.destroy() called twice")
         self._destroyed = True
+
+        # publish stop signal
+        msg = std_msgs.msg.Int32()
+        msg.data = SCENIC_SIM_OP_STATE_STOPPED
+        self.simulator.scenic_scenario_op_status_publisher.publish(msg)
 
         if self.ego_motion_state is not MOTION_STATE_STOPPED and \
                 self.ads_internal_status is not AdsInternalStatus.GOAL_ARRIVED:
@@ -453,3 +478,8 @@ class AWSIMLabsSimulation(simulators.Simulation):
         else:
             print(f"[ERROR] Failed to stop Ego. Stop order was rejected.")
             return False
+
+    def publish_in_auto_mode_signal(self):
+        msg = std_msgs.msg.Int32()
+        msg.data = SCENIC_SIM_OP_STATE_AUTO_MODE
+        self.simulator.scenic_scenario_op_status_publisher.publish(msg)

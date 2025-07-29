@@ -78,6 +78,7 @@ class SendEngageCommandAction(Action):
 
         simulation.simulator.ego_auto_engage_publisher.publish(msg)
         simulation.ads_internal_status = AdsInternalStatus.AUTONOMOUS_IN_PROGRESS
+        simulation.publish_in_auto_mode_signal()
 
 class SetMaxSpeedAction(Action):
     def __init__(self, max_speed=None):
