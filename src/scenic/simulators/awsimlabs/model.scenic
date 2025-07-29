@@ -39,7 +39,7 @@ class Vehicle(AWSIMObject):
     isVehicle: True
 
 class Car(Vehicle):
-    bodyStyle: Uniform("taxi", "hatchback", "smallCar", "truck", "van")
+    body_style: Uniform("taxi", "hatchback", "smallCar", "truck", "van")
 
 class EgoCar(Vehicle):
     isEgo: True
@@ -78,6 +78,6 @@ class EgoCar(Vehicle):
 class Waypoint(OrientedPoint):
     heading: roadDirection at self.position
 
-def time_elapsed():
+def real_time_from_start():
     sim = simulation()
-    return sim.real_time - sim.real_start_time
+    return sim.real_time_from_start()

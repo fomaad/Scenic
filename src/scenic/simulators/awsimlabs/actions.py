@@ -2,6 +2,7 @@ import math
 import time
 from enum import Enum
 
+from scenic.core.distributions import *
 from scenic.domains.driving.actions import *
 from scenic.core.geometry import normalizeAngle
 import utils
@@ -12,6 +13,8 @@ from geometry_msgs.msg import PoseStamped
 from autoware_vehicle_msgs.msg import Engage
 from tier4_planning_msgs.msg import VelocityLimit
 import std_msgs.msg
+from aw_monitor.srv import *
+
 
 class AdsInternalStatus(Enum):
     UNINITIALIZED = 0
@@ -39,17 +42,6 @@ class AdsInternalStatus(Enum):
             return self.value > other.value
         return NotImplemented
 
-class MotionState(Enum):
-    """
-    To make it consistent with Autoware, don't change the value
-    uint16 UNKNOWN = 0
-    uint16 STOPPED = 1
-    uint16 STARTING = 2
-    uint16 MOVING = 3
-    """
-    STOPPED = 1
-    MOVING = 3
-
 class SetDestinationAction(Action):
     def __init__(self, dest):
         self.dest = dest
@@ -61,17 +53,16 @@ class SetDestinationAction(Action):
         upd_pos = simulation.simulator.network.correct_elevation(self.dest)
 
         msg = PoseStamped()
-        msg.header.stamp = simulation.node.get_clock().now().to_msg()
+        msg.header.stamp = simulation.simulator.node.get_clock().now().to_msg()
         msg.header.frame_id = 'map'
         msg.pose.position = utils.scenic_point_to_ros_point(upd_pos)
 
         quaternion = utils.yaw_to_quaternion(normalizeAngle(self.dest.heading + math.pi/2))
         msg.pose.orientation = quaternion
 
-        simulation.ego_goal_publisher.publish(msg)
-        rclpy.spin_once(simulation.node, timeout_sec=0.1)
+        simulation.simulator.ego_goal_publisher.publish(msg)
         simulation.ads_internal_status = AdsInternalStatus.GOAL_SET
-        print('set Ego destination done')
+        print('Setting Ego destination done')
 
 class SendEngageCommandAction(Action):
     def __init__(self):
@@ -82,11 +73,10 @@ class SendEngageCommandAction(Action):
     def applyTo(self, obj, simulation):
         print("Sending engage command to activate the autonomous operation mode.")
         msg = Engage()
-        msg.stamp = simulation.node.get_clock().now().to_msg()
+        msg.stamp = simulation.simulator.node.get_clock().now().to_msg()
         msg.engage = True
 
-        simulation.ego_auto_engage_publisher.publish(msg)
-        rclpy.spin_once(simulation.node, timeout_sec=0.1)
+        simulation.simulator.ego_auto_engage_publisher.publish(msg)
         simulation.ads_internal_status = AdsInternalStatus.AUTONOMOUS_IN_PROGRESS
 
 class SetMaxSpeedAction(Action):
@@ -103,9 +93,7 @@ class SetMaxSpeedAction(Action):
             vel_limit_msg.max_velocity = float(self.max_speed)
             vel_limit_msg.use_constraints = False
             vel_limit_msg.sender = ""
-            simulation.ego_max_speed_publisher.publish(vel_limit_msg)
-            rclpy.spin_once(simulation.node)
-            # print('set max speed')
+            simulation.simulator.ego_max_speed_publisher.publish(vel_limit_msg)
 
 class FollowLaneAction(Action):
     def __init__(self, target_speed=None, acceleration=None, deceleration=None):
@@ -133,9 +121,27 @@ class FollowLaneAction(Action):
         }
         msg = std_msgs.msg.String()
         msg.data = json.dumps(my_dict)
-        simulation.follow_lane_cmd_publisher.publish(msg)
-        rclpy.spin_once(simulation.node, timeout_sec=0.1)
-        print(f"Sent follow lane command to {npc_obj.name}")
+        simulation.simulator.follow_lane_publisher.publish(msg)
+
+        # do a service request to confirm the command was sent and processed properly
+        retry = 0
+        req = DynamicControl.Request()
+        req.json_request = msg.data
+        while retry < 10:
+            future = simulation.simulator.follow_lane_client.call_async(req)
+            rclpy.spin_until_future_complete(simulation.simulator.node, future)
+            response = future.result()
+            if response.status.success:
+                print(f"Sent follow lane command to {npc_obj.name} successfully.")
+                break
+            time.sleep(simulation.timestep)
+            retry += 1
+
+        if retry == 10:
+            logtext = f"[ERROR] AWSIM failed to process follow lane action, "\
+                      f"error message: {response.status.message}."
+            print("[ERROR] " + logtext)
+            raise RejectionException(logtext)
 
 class FollowWaypointsAction(Action):
     def __init__(self, waypoints, target_speed=None, acceleration=None, deceleration=None):
@@ -152,13 +158,13 @@ class FollowWaypointsAction(Action):
         is_acceleration_defined = self.acceleration is not None
         is_deceleration_defined = self.deceleration is not None
         ros_wps = []
-        print("Original waypoints: ")
+        print("[INFO] Original waypoints: ")
         for waypoint in self.waypoints:
             print(f"{waypoint.position}, heading: {waypoint.toHeading()}")
             corrected_position = simulation.simulator.network.correct_elevation(waypoint)
             ros_wps.append(utils.scenic_point_to_dict(corrected_position))
 
-        print("Corrected waypoints: ")
+        print("[INFO] Corrected waypoints: ")
         for waypoint in ros_wps:
             print(f"{waypoint}")
 
@@ -174,7 +180,23 @@ class FollowWaypointsAction(Action):
         }
         msg = std_msgs.msg.String()
         msg.data = json.dumps(my_dict)
-        print(msg.data)
-        simulation.follow_waypoints_cmd_publisher.publish(msg)
-        rclpy.spin_once(simulation.node, timeout_sec=0.1)
-        print(f"Sent follow waypoints command to {npc_obj.name}")
+        simulation.simulator.follow_waypoints_publisher.publish(msg)
+
+        # do a service request to confirm the command was sent and processed properly
+        retry = 0
+        req = DynamicControl.Request()
+        req.json_request = msg.data
+        while retry < 10:
+            future = simulation.simulator.follow_waypoints_client.call_async(req)
+            rclpy.spin_until_future_complete(simulation.simulator.node, future)
+            response = future.result()
+            if response.status.success:
+                print(f"Sent follow waypoints command to {npc_obj.name} successfully.")
+                break
+            time.sleep(simulation.timestep)
+            retry += 1
+
+        if retry == 10:
+            print(f"[ERROR] AWSIM failed to process follow waypoints action, "
+                  f"error message: {response.status.message}.")
+            raise RejectionException(logtext)

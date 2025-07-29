@@ -142,8 +142,9 @@ class Network:
         """
         lanes = [lane for lane in self.traffic_lanes if lane.is_2dpoint_on_lane(point2d, heading, heading_tolerance)]
         if not lanes:
-            print('No lane found')
-            return None
+            logtext = f"The position {point2d} is not inside any lane region"
+            print(f'[ERROR] {logtext}')
+            raise RejectionException(logtext)
         if len(lanes) > 1:
             lane_ids = [lane.id for lane in lanes]
             print(f'[WARNING] Found {len(lanes)} possible lanes ({lane_ids}) containing point {point2d}. '
@@ -165,10 +166,10 @@ class Network:
         vec = toVector(point)
         point2d = (vec.x, vec.y)
         lane = self.find_lane_for_point(point2d, heading, heading_tolerance)
-        if not lane:
-            logtext = f"The position {point2d} is not inside any lane region."
-            print(f'[ERROR] {logtext}')
-            raise RejectionException(logtext)
+        # if not lane:
+        #     logtext = f"The position {point2d} is not inside any lane region."
+        #     print(f'[ERROR] {logtext}')
+        #     raise RejectionException(logtext)
         point3d, wp_id = lane.correct_position(point2d)
         return lane, point3d, wp_id
 

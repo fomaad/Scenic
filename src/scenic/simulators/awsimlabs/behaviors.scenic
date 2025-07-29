@@ -25,5 +25,19 @@ behavior FollowLane(target_speed=None, acceleration=None, deceleration=None):
     take action
 
 behavior FollowWaypoints(waypoints, target_speed=None, acceleration=None, deceleration=None):
+    while not ego.is_in_autonomous_mode():
+        wait
+    action = FollowWaypointsAction(waypoints, target_speed, acceleration, deceleration)
+    take action
+
+behavior FollowLaneWithDelay(threshold=15, target_speed=None, acceleration=None, deceleration=None):
+    while not ego.is_in_autonomous_mode() or (distance from self to ego) > threshold:
+        wait
+    action = FollowLaneAction(target_speed, acceleration, deceleration)
+    take action
+
+behavior FollowWaypointsWithDelay(waypoints, threshold=15, target_speed=None, acceleration=None, deceleration=None):
+    while not ego.is_in_autonomous_mode() or (distance from self to ego) > threshold:
+        wait
     action = FollowWaypointsAction(waypoints, target_speed, acceleration, deceleration)
     take action
