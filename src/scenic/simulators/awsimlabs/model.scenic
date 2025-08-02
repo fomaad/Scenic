@@ -4,6 +4,7 @@ from scenic.simulators.awsimlabs.simulator import AWSIMLabsSimulator
 from scenic.simulators.awsimlabs.behaviors import *
 
 network = load_map(globalParameters.map)
+bind_along_lane_impl(network.along_lane_impl)
 simulator AWSIMLabsSimulator(network)
 
 vehicle_road = network.vehicle_2D_road_region()

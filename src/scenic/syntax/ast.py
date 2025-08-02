@@ -1281,3 +1281,18 @@ class IntersectsOp(AST):
         self.left = left
         self.right = right
         self._fields = ["left", "right"]
+
+class AlongLaneOp(AST):
+    __match_args__ = ("base", "distance")
+
+    def __init__( 
+        self,
+        base: ast.AST,
+        distance: ast.AST,
+        *args: any,
+        **kwargs: any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.base = base
+        self.distance = distance
+        self._fields = ["base", "distance"]

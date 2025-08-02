@@ -6,6 +6,7 @@ from scenic.core.object_types import OrientedPoint, Point
 from scenic.core.vectors import Orientation, VectorField
 from scenic.core.distributions import *
 from scenic.simulators.awsimlabs.traffic_lane import *
+from scenic.syntax.veneer import bind_along_lane_impl
 
 # some filter conditions
 no_private_lane = lambda lane: lane.location != LocationType.PRIVATE
@@ -186,6 +187,39 @@ class Network:
         pos = orientedpoint.position
         return self.do_correct_elevation((pos.x,pos.y), orientedpoint.toHeading(), heading_tolerance)
 
+    def along_lane_impl(self, base: Vector, distance: float) -> OrientedPoint:
+        """
+        Simulator-specific implementation of the along_lane syntax
+        """
+        vec = toVector(base)
+        lane, point3d, wp_id = self.find_lane_and_correct_position(vec)
+        segment = lane.way_points[wp_id+1] - point3d
+        dis_to_next_wp = np.linalg.norm(segment)
+        if distance <= dis_to_next_wp:
+            pos = toVector(distance / dis_to_next_wp * segment + point3d)
+            yaw = math.atan2(segment[1], segment[0])
+            return pos, yaw
+        else:
+            return self.do_along_lane(lane, wp_id+1, distance - dis_to_next_wp)
+
+    def do_along_lane(self, lane, wp_id, distance) -> OrientedPoint:
+        """
+        Return the point by following the given lane $distance meters from the way_points[$wp_id]
+        """
+        if wp_id == len(lane.way_points) - 1:
+            if not lane.next_lanes:
+                raise RejectionException("[ERROR] Next lane is empty.")
+            next_lane = lane.next_lanes[0] # TODO: revise
+            return self.do_along_lane(next_lane, 0, distance)
+        segment = lane.way_points[wp_id+1] - lane.way_points[wp_id]
+        dis_to_next_wp = np.linalg.norm(segment)
+        if distance <= dis_to_next_wp:
+            pos = toVector(distance/dis_to_next_wp*segment + lane.way_points[wp_id])
+            yaw = math.atan2(segment[1], segment[0])
+            return pos, yaw
+        else:
+            return self.do_along_lane(lane, wp_id + 1, distance - dis_to_next_wp)
+
     def precisely_find_lane_for_point(self, point2D, tolerance=1e-3):
         """
         DEPRECATED
@@ -297,7 +331,6 @@ def parse_turn_direction(turn_direction):
     elif turn_direction == "straight":
         return TurnDirection.STRAIGHT
     return TurnDirection.UNDEFINED
-
 
 # for debugging
 def plot_traffic_lanes(lanes, point1=None, point2=None):

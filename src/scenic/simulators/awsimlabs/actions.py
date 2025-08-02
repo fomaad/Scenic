@@ -5,7 +5,7 @@ from enum import Enum
 from scenic.core.distributions import *
 from scenic.domains.driving.actions import *
 from scenic.core.geometry import normalizeAngle
-import utils
+import scenic.simulators.awsimlabs.utils as utils
 import json
 
 import rclpy

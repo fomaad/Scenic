@@ -1800,3 +1800,10 @@ class ScenicToPythonTransformer(Transformer):
             ],
             keywords=[],
         )
+
+    def visit_AlongLaneOp(self, node: s.AlongLaneOp):
+        return ast.Call(
+            func=ast.Name(id="along_lane", ctx=loadCtx),
+            args=[self.visit(node.base), self.visit(node.distance)],
+            keywords=[],
+        )

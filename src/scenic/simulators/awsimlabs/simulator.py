@@ -1,7 +1,7 @@
 import datetime
 
 import scenic.core.simulators as simulators
-import utils
+import scenic.simulators.awsimlabs.utils as utils
 from scenic.simulators.awsimlabs.network import *
 from scenic.simulators.awsimlabs.actions import AdsInternalStatus
 
@@ -236,7 +236,7 @@ class AWSIMLabsSimulation(simulators.Simulation):
         self.remove_npcs()
 
         print("[INFO] Cleaning up finished.")
-        time.sleep(3)  # be careful with time.sleep
+        time.sleep(50)  # be careful with time.sleep. this is for writing trace data
 
     def upd_execution_state(self):
         response = self.request_execution_state()

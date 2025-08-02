@@ -178,6 +178,7 @@ __all__ = (
     "Always",
     "Eventually",
     "Next",
+    "along_lane"
 )
 
 # various Python types and functions used in the language but defined elsewhere
@@ -317,6 +318,7 @@ evaluatingGuard = False
 mode2D = False
 _originalConstructibles = (Point, OrientedPoint, Object)
 BUFFERING_PITCH = 0.1
+_along_lane_impl = None  # for along_lane() implementation, will be bound at runtime
 
 ## APIs used internally by the rest of Scenic
 
@@ -2155,3 +2157,32 @@ def Until(lhs, rhs):
 
 def Implies(lhs, rhs):
     return propositions.Implies(lhs, rhs)
+
+def along_lane(base, distance) -> OrientedPoint:
+    """
+    Follows the lane from the base position for a given distance.
+    Requires that _along_lane_impl has been bound with a concrete implementation.
+    """
+    if _along_lane_impl is None:
+        raise RuntimeError("along_lane() not yet bound to a map-aware implementation.")
+
+    @distributionFunction
+    def lazy_along_lane(base, distance):
+        return along_lane(base, distance)
+
+    # Check if either argument is lazy
+    if isLazy(base):
+        return lazy_along_lane(base, distance)
+    
+    base = toVector(base, '"along_lane" with base not a vector')
+    distance_concrete = toScalar(distance, '"along_lane" with base not a scalar')
+    pos, global_heading = _along_lane_impl(base, distance_concrete)
+    return OrientedPoint._with(position=pos, yaw=global_heading)
+
+def bind_along_lane_impl(func):
+    """
+    Set the simulator-specific implementation for along_lane.
+    This must be called after the map is loaded.
+    """
+    global _along_lane_impl
+    _along_lane_impl = func

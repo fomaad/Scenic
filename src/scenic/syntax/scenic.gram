@@ -1858,6 +1858,7 @@ scenic_prefix_operators:
     # altitude from/to
     | &"altitude" scenic_altitude_from_op
     | "follow" e1=expression 'from' e2=expression 'for' e3=scenic_prefix_operators { s.FollowOp(target=e1, base=e2, distance=e3, LOCATIONS) }
+    | "along" "lane" "from" b=expression 'for' d=expression { s.AlongLaneOp(base=b, distance=d, LOCATIONS) }
     | "visible" e=scenic_prefix_operators { s.VisibleOp(region=e, LOCATIONS) }
     | 'not' "visible" e=scenic_prefix_operators { s.NotVisibleOp(region=e, LOCATIONS) }
     | p=scenic_position_of_op_position 'of' e=scenic_prefix_operators { s.PositionOfOp(position=p, target=e, LOCATIONS) }
