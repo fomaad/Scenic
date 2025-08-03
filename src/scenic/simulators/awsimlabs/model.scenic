@@ -5,7 +5,8 @@ from scenic.simulators.awsimlabs.behaviors import *
 
 network = load_map(globalParameters.map)
 bind_along_lane_impl(network.along_lane_impl)
-simulator AWSIMLabsSimulator(network)
+wait_until_trace_written = False if 'sim_wait_until_trace_written' not in globalParameters else globalParameters.sim_wait_until_trace_written
+simulator AWSIMLabsSimulator(network, wait_until_trace_written)
 
 vehicle_road = network.vehicle_2D_road_region()
 center_lane_lines = network.vehicle_2D_road_center_lines()

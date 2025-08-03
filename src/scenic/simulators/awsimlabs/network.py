@@ -61,7 +61,7 @@ class Network:
         direction = lane.way_points[wp_id + 1] - lane.way_points[wp_id]
         yaw = math.atan2(direction[1], direction[0]) 
         # In Scenic, 0 is Oy(+) direction
-        return Orientation._fromHeading(normalizeAngle(yaw - math.pi/2))
+        return Orientation._fromHeading(normalizeAngle(yaw))
     
     def get_traffic_lane(self, id):
         for entry in self.traffic_lanes:
@@ -198,7 +198,7 @@ class Network:
         if distance <= dis_to_next_wp:
             pos = toVector(distance / dis_to_next_wp * segment + point3d)
             yaw = math.atan2(segment[1], segment[0])
-            return pos, yaw
+            return pos, normalizeAngle(yaw)
         else:
             return self.do_along_lane(lane, wp_id+1, distance - dis_to_next_wp)
 
@@ -207,18 +207,48 @@ class Network:
         Return the point by following the given lane $distance meters from the way_points[$wp_id]
         """
         if wp_id == len(lane.way_points) - 1:
-            if not lane.next_lanes:
-                raise RejectionException("[ERROR] Next lane is empty.")
-            next_lane = lane.next_lanes[0] # TODO: revise
+            next_lane = self.get_next_straight_lane(lane)
             return self.do_along_lane(next_lane, 0, distance)
         segment = lane.way_points[wp_id+1] - lane.way_points[wp_id]
         dis_to_next_wp = np.linalg.norm(segment)
         if distance <= dis_to_next_wp:
             pos = toVector(distance/dis_to_next_wp*segment + lane.way_points[wp_id])
             yaw = math.atan2(segment[1], segment[0])
-            return pos, yaw
+            return pos, normalizeAngle(yaw)
         else:
             return self.do_along_lane(lane, wp_id + 1, distance - dis_to_next_wp)
+
+    def get_next_straight_lane(self, lane, heading_threshold=0.15):
+        if not lane.next_lanes:
+            raise RejectionException(f"[ERROR] Lane {lane} does not have a next lane.")
+        next_straight_lanes = [nlane for nlane in lane.next_lanes if
+                               (nlane.turn_direction is TurnDirection.UNDEFINED or
+                                nlane.turn_direction is TurnDirection.STRAIGHT)]
+
+        if not next_straight_lanes:
+            raise RejectionException(f"[ERROR] Lane {lane} does not have a straight next lane.")
+
+        if len(next_straight_lanes) == 1:
+            return next_straight_lanes[0]
+
+        heading_last_segment = lane.heading(wp_id=len(lane.way_points)-2)
+        filtered_lanes = []
+        for next_lane in next_straight_lanes:
+            heading_diff = abs(next_lane.heading() - heading_last_segment)
+            if heading_diff <= heading_threshold:
+                filtered_lanes.append((heading_diff, next_lane))
+
+        if len(filtered_lanes) > 1:
+            re = min(filtered_lanes, key=lambda x: x[0])
+            print(f"[WARNING] Lane {lane.id} has {len(filtered_lanes)} next lanes with "
+                  f"relative heading <= {heading_threshold}. Chose lane {re[1]}.")
+            return re[1]
+        elif len(filtered_lanes) == 1:
+            return filtered_lanes[1]
+        else:
+            print(f"[ERROR] Lane {lane.id} has no next lanes with relative heading <= {heading_threshold}")
+            return lane.next_lanes[0]
+
 
     def precisely_find_lane_for_point(self, point2D, tolerance=1e-3):
         """

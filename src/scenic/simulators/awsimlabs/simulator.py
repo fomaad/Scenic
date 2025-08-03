@@ -42,10 +42,11 @@ SCENIC_SIM_OP_STATE_RUNNING = 2
 SCENIC_SIM_OP_STATE_AUTO_MODE = 3
 
 class AWSIMLabsSimulator(simulators.Simulator):
-    def __init__(self, network: Network, *args, **kwargs):
+    def __init__(self, network: Network, wait_until_trace_written, *args, **kwargs):
         print("AWSIMLabsSimulator loading...")
         super().__init__(*args, **kwargs)
         self.network = network
+        self.wait_until_trace_written = wait_until_trace_written
 
         # Initialize ROS2 node, publishers, subscribers, etc.
         rclpy.init()
@@ -161,6 +162,11 @@ class AWSIMLabsSimulator(simulators.Simulator):
             ChangeOperationMode,
             '/api/operation_mode/change_to_stop'
         )
+        # query the monitor recording state (e.g., recording, writing, written, etc.)
+        self.recording_state_client = self.node.create_client(
+            MonitorRecordingState,
+            '/monitor/recording/state'
+        )
 
     def createSimulation(self, scene, **kwargs):
         return AWSIMLabsSimulation(scene, self, **kwargs)
@@ -176,6 +182,7 @@ class AWSIMLabsSimulation(simulators.Simulation):
     def __init__(self, scene, simulator, **kwargs):
         print("\n\n[INFO] AWSIMLabsSimulation starting...")
         self.simulator = simulator
+        self.sim_wait_until_trace_written = simulator.wait_until_trace_written
         self._destroyed = False
         self.ego_properties = {}
         self.vehicle_properties = {}
@@ -236,7 +243,28 @@ class AWSIMLabsSimulation(simulators.Simulation):
         self.remove_npcs()
 
         print("[INFO] Cleaning up finished.")
-        time.sleep(50)  # be careful with time.sleep. this is for writing trace data
+        if self.sim_wait_until_trace_written:
+            self.wait_until_data_written()
+        else:
+            time.sleep(5)  # be careful with time.sleep. this is for writing trace data
+
+    def wait_until_data_written(self):
+        retry = 0
+        while retry < 25:
+            req = MonitorRecordingState.Request()
+            future = self.simulator.recording_state_client.call_async(req)
+            rclpy.spin_until_future_complete(self.simulator.node, future)
+            res = future.result()
+            print(res)
+            if (res.state is not MonitorRecordingState.Response.WRITING_DATA and
+                    res.state is not MonitorRecordingState.Response.RECORDING):
+                break
+            else:
+                print("[INFO] Waiting for writing data...")
+                time.sleep(5)
+            retry += 1
+        if retry == 25:
+            print("[WARNING] Timeout waiting for writing data...")
 
     def upd_execution_state(self):
         response = self.request_execution_state()
@@ -284,7 +312,7 @@ class AWSIMLabsSimulation(simulators.Simulation):
 
         # Convert heading (yaw) to quaternion
         # don't forget to add 90deg
-        quaternion = utils.yaw_to_quaternion(ego_obj.heading + math.pi / 2)
+        quaternion = utils.yaw_to_quaternion(ego_obj.heading)
         print(f"Ego quaternion: {quaternion}")
         self.ego_init_pose.pose.orientation = quaternion
 
@@ -405,7 +433,7 @@ class AWSIMLabsSimulation(simulators.Simulation):
         euler_angles = utils.ros2scenic_position(kinematics.pose.rotation)
 
         elevation = kinematics.pose.position.z
-        heading = normalizeAngle(kinematics.pose.rotation.z - math.pi / 2)
+        heading = normalizeAngle(kinematics.pose.rotation.z)
         speed = math.hypot(*linear_velocity)
         angular_velocity = utils.ros2scenic_position(kinematics.twist.angular)
         angularSpeed = kinematics.twist.angular.z

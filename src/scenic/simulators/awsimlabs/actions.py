@@ -50,14 +50,16 @@ class SetDestinationAction(Action):
         return agent.isEgo
 
     def applyTo(self, obj, simulation):
+        print(f'Original goal: {self.dest.position}, heading angle {self.dest.heading * 180 / math.pi}')
         upd_pos = simulation.simulator.network.correct_elevation(self.dest)
+        print(f'Corrected goal: {upd_pos}')
 
         msg = PoseStamped()
         msg.header.stamp = simulation.simulator.node.get_clock().now().to_msg()
         msg.header.frame_id = 'map'
         msg.pose.position = utils.scenic_point_to_ros_point(upd_pos)
 
-        quaternion = utils.yaw_to_quaternion(normalizeAngle(self.dest.heading + math.pi/2))
+        quaternion = utils.yaw_to_quaternion(normalizeAngle(self.dest.heading))
         msg.pose.orientation = quaternion
 
         simulation.simulator.ego_goal_publisher.publish(msg)
