@@ -11,6 +11,7 @@ from scenic.syntax.veneer import bind_along_lane_impl
 # some filter conditions
 no_private_lane = lambda lane: lane.location != LocationType.PRIVATE
 no_pedestrian_lane = lambda lane: lane.participant != TrafficParticipant.PEDESTRIAN
+ignore_low_elevation_lane = lambda lane: lane.way_points[0][2] >= 35
 
 """
 There exist some lanes in the OSM map that are not visible in AWSIM-Labs simulator.
@@ -61,7 +62,7 @@ class Network:
         direction = lane.way_points[wp_id + 1] - lane.way_points[wp_id]
         yaw = math.atan2(direction[1], direction[0]) 
         # In Scenic, 0 is Oy(+) direction
-        return Orientation._fromHeading(normalizeAngle(yaw))
+        return Orientation.fromEuler(utils.to_scenic_heading_angle(yaw), 0, 0)
     
     def get_traffic_lane(self, id):
         for entry in self.traffic_lanes:
@@ -146,19 +147,37 @@ class Network:
             logtext = f"The position {point2d} is not inside any lane region"
             print(f'[ERROR] {logtext}')
             raise RejectionException(logtext)
-        if len(lanes) > 1:
+
+        if len(lanes) == 1:
+            return lanes[0]
+
+        lanes2 = [lane for lane in lanes if ignore_low_elevation_lane(lane)]
+        if not lanes2:
             lane_ids = [lane.id for lane in lanes]
             print(f'[WARNING] Found {len(lanes)} possible lanes ({lane_ids}) containing point {point2d}. '
+                  f'No lanes available after filtering out low-evelation lanes.'
                   f'By default, the highest-elevation lane was selected.')
-            max_z = -float('inf')
-            result = None
-            for lane in lanes:
-                if lane.way_points[0][2] > max_z:
-                    max_z = lane.way_points[0][2]
-                    result = lane
-            return result
+            return utils.find_lane_with_highest_elevation(lanes)
+        if len(lanes2) == 1:
+            return lanes2[0]
 
-        return lanes[0]
+        lanes3 = [lane for lane in lanes2 if lane.turn_direction==TurnDirection.UNDEFINED or
+                                             lane.turn_direction==TurnDirection.STRAIGHT]
+        if not lanes3:
+            lane_ids = [lane.id for lane in lanes2]
+            print(f'[WARNING] Found {len(lanes2)} possible lanes ({lane_ids}) containing point {point2d} '
+                  f'(ignored low-evelation lanes). '
+                  f'No straight lane. '
+                  f'By default, the highest-elevation lane was selected.')
+            return utils.find_lane_with_highest_elevation(lanes2)
+        if len(lanes3) == 1:
+            return lanes3[0]
+
+        lane_ids = [lane.id for lane in lanes3]
+        print(f'[WARNING] Found {len(lanes3)} possible lanes ({lane_ids}) containing point {point2d} '
+              f'(ignored low-evelation lanes, left-turn and right-turn lanes. '
+              f'By default, the highest-elevation lane was selected.')
+        return utils.find_lane_with_highest_elevation(lanes3)
 
     def find_lane_and_correct_position(self, point, heading: Optional[float]=None, heading_tolerance=0.174):
         """
@@ -185,9 +204,9 @@ class Network:
 
     def correct_elevation_for_orientedpoint(self, orientedpoint: OrientedPoint, heading_tolerance=0.174):
         pos = orientedpoint.position
-        return self.do_correct_elevation((pos.x,pos.y), orientedpoint.toHeading(), heading_tolerance)
+        return self.do_correct_elevation((pos.x,pos.y), orientedpoint.heading, heading_tolerance)
 
-    def along_lane_impl(self, base: Vector, distance: float) -> OrientedPoint:
+    def along_lane_impl(self, base: Vector, distance: float):
         """
         Simulator-specific implementation of the along_lane syntax
         """
@@ -198,11 +217,11 @@ class Network:
         if distance <= dis_to_next_wp:
             pos = toVector(distance / dis_to_next_wp * segment + point3d)
             yaw = math.atan2(segment[1], segment[0])
-            return pos, normalizeAngle(yaw)
+            return pos, utils.to_scenic_heading_angle(yaw)
         else:
             return self.do_along_lane(lane, wp_id+1, distance - dis_to_next_wp)
 
-    def do_along_lane(self, lane, wp_id, distance) -> OrientedPoint:
+    def do_along_lane(self, lane, wp_id, distance):
         """
         Return the point by following the given lane $distance meters from the way_points[$wp_id]
         """
@@ -214,7 +233,7 @@ class Network:
         if distance <= dis_to_next_wp:
             pos = toVector(distance/dis_to_next_wp*segment + lane.way_points[wp_id])
             yaw = math.atan2(segment[1], segment[0])
-            return pos, normalizeAngle(yaw)
+            return pos, utils.to_scenic_heading_angle(yaw)
         else:
             return self.do_along_lane(lane, wp_id + 1, distance - dis_to_next_wp)
 
@@ -241,7 +260,7 @@ class Network:
         if len(filtered_lanes) > 1:
             re = min(filtered_lanes, key=lambda x: x[0])
             print(f"[WARNING] Lane {lane.id} has {len(filtered_lanes)} next lanes with "
-                  f"relative heading <= {heading_threshold}. Chose lane {re[1]}.")
+                  f"relative heading <= {heading_threshold}. Chose lane {re[1].id}.")
             return re[1]
         elif len(filtered_lanes) == 1:
             return filtered_lanes[1]

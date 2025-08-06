@@ -41,3 +41,27 @@ behavior FollowWaypointsWithDelay(waypoints, threshold=15, target_speed=None, ac
         wait
     action = FollowWaypointsAction(waypoints, target_speed, acceleration, deceleration)
     take action
+
+def cal_distance_delay(desired_distance_threshold, target_speed, distance_travel,
+                       ego_speed, acceleration, npc_dis_to_mid_front):
+    accel_time = target_speed/acceleration
+    accel_dis = 0.5 * target_speed**2 / acceleration
+    remain_dis = distance_travel - accel_dis
+    remain_time = remain_dis / target_speed
+    ego_travel_dis = ego_speed * (accel_time + remain_time)
+    return desired_distance_threshold + ego_travel_dis - distance_travel + npc_dis_to_mid_front
+
+behavior JamaCutinBehavior(waypoints, desired_distance_threshold, target_speed,
+                                      ego_speed, acceleration=8.35, deceleration=None):
+    distance_travel = distance from waypoints[0] to waypoints[1]
+    threshold = cal_distance_delay(desired_distance_threshold, target_speed, distance_travel,
+                                   ego_speed, acceleration, self.length*0.75)
+    print(f"Threshold to trigger NPC moving: {threshold}")
+
+    computation_delay=0.33
+    threshold += computation_delay * ego_speed
+
+    while not ego.is_in_autonomous_mode() or (distance from self to ego) > threshold:
+        wait
+    action = FollowWaypointsAction(waypoints, target_speed, acceleration, deceleration)
+    take action

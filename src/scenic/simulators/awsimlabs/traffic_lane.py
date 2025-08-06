@@ -95,7 +95,7 @@ class TrafficLane:
             wp_id = 0
 
         direction = self.way_points[wp_id + 1] - self.way_points[wp_id]
-        yaw = normalizeAngle(math.atan2(direction[1], direction[0]))
+        yaw = utils.to_scenic_heading_angle(math.atan2(direction[1], direction[0]))
         # print(f'yaw: {yaw}, heading: {heading}')
         return abs(heading - yaw) < heading_tolerance
 
@@ -139,7 +139,7 @@ class TrafficLane:
 
     def heading(self, wp_id=0):
         segment = self.way_points[wp_id + 1] - self.way_points[wp_id]
-        return normalizeAngle(math.atan2(segment[1], segment[0]))
+        return utils.to_scenic_heading_angle(math.atan2(segment[1], segment[0]))
 
     def __str__(self):
         next_ids = [entry.id for entry in self.next_lanes]

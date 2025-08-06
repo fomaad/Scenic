@@ -1,6 +1,7 @@
 import numpy as np
 import math
 import geometry_msgs.msg
+from scenic.core.geometry import normalizeAngle
 from scipy.spatial.transform import Rotation as R
 from scenic.core.vectors import Vector
 
@@ -109,4 +110,18 @@ def rosstamp2time(stamp, round=False):
     result = stamp.sec + stamp.nanosec/10**9
     if round:
         return round_float(result)
+    return result
+def to_scenic_heading_angle(angle):
+    return normalizeAngle(angle - math.pi / 2)
+
+def to_ros_heading_angle(angle):
+    return normalizeAngle(angle + math.pi / 2)
+
+def find_lane_with_highest_elevation(lanes):
+    max_z = -float('inf')
+    result = None
+    for lane in lanes:
+        if lane.way_points[0][2] > max_z:
+            max_z = lane.way_points[0][2]
+            result = lane
     return result

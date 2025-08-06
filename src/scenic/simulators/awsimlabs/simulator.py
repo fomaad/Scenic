@@ -122,6 +122,17 @@ class AWSIMLabsSimulator(simulators.Simulator):
                 depth=1
             )
         )
+        # simulation metadata publisher
+        self.sim_metadata_publisher = self.node.create_publisher(
+            std_msgs.msg.String,
+            '/scenic/sim_metadata',
+            QoSProfile(
+                reliability=ReliabilityPolicy.RELIABLE,
+                history=HistoryPolicy.KEEP_LAST,
+                durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                depth=1
+            )
+        )
 
         # service clients
         # ground truth kinematics
@@ -178,11 +189,32 @@ class AWSIMLabsSimulator(simulators.Simulator):
         self.node.destroy_node()
         rclpy.shutdown()
 
+class SimulationMetadata:
+    from typing import List
+    ego_init_position: Vector = Vector(0,0,0)
+    ego_goal_position: Vector = Vector(0,0,0)
+    ego_target_speed: float = 0.0
+
+    cutin_npc_target_speed: float = 0.0
+    cutin_waypoints = []
+    distance_trigger_motion: float = 0.0
+
+    def to_dict(self):
+        return {
+            'ego_init_position': utils.scenic_point_to_dict(self.ego_init_position),
+            'ego_goal_position': utils.scenic_point_to_dict(self.ego_goal_position),
+            'ego_target_speed': float(self.ego_target_speed),
+            'cutin_npc_target_speed': float(self.cutin_npc_target_speed),
+            'cutin_waypoints': self.cutin_waypoints,
+        }
+
 class AWSIMLabsSimulation(simulators.Simulation):
     def __init__(self, scene, simulator, **kwargs):
         print("\n\n[INFO] AWSIMLabsSimulation starting...")
         self.simulator = simulator
         self.sim_wait_until_trace_written = simulator.wait_until_trace_written
+        self.metadata = SimulationMetadata()
+
         self._destroyed = False
         self.ego_properties = {}
         self.vehicle_properties = {}
@@ -197,7 +229,7 @@ class AWSIMLabsSimulation(simulators.Simulation):
         msg.data = SCENIC_SIM_OP_STATE_RUNNING
         self.simulator.scenic_scenario_op_status_publisher.publish(msg)
 
-        timestep = kwargs.pop('timestep', 0.1)
+        timestep = kwargs.pop('timestep', 0.05)
         super().__init__(scene, timestep=timestep, **kwargs)
 
     def step(self):
@@ -210,7 +242,7 @@ class AWSIMLabsSimulation(simulators.Simulation):
         self.gt_kinematics_request()
         self.upd_execution_state()
 
-        time.sleep(self.timestep)
+        # time.sleep(self.timestep)
 
     def getProperties(self, obj, properties):
         if obj.isEgo:
@@ -223,6 +255,9 @@ class AWSIMLabsSimulation(simulators.Simulation):
         return {prop: getattr(obj, prop, None) for prop in properties}
 
     def destroy(self):
+        # publish metadata, e.g., cutin waypoints
+        self.publish_metadata()
+
         print("AWSIMLabsSimulation cleaning...")
         super().destroy()
         if self._destroyed:
@@ -247,6 +282,11 @@ class AWSIMLabsSimulation(simulators.Simulation):
             self.wait_until_data_written()
         else:
             time.sleep(5)  # be careful with time.sleep. this is for writing trace data
+
+    def publish_metadata(self):
+        msg = std_msgs.msg.String()
+        msg.data = str(self.metadata.to_dict())
+        self.simulator.sim_metadata_publisher.publish(msg)
 
     def wait_until_data_written(self):
         retry = 0
@@ -300,6 +340,7 @@ class AWSIMLabsSimulation(simulators.Simulation):
         print(f'Ego original postion: {ego_obj.position}, heading angle {ego_obj.heading * 180 / math.pi}')
         upd_pos = self.simulator.network.do_correct_elevation(ego_obj.position, ego_obj.heading)
         print(f'Ego corrected postion: {upd_pos}')
+        self.metadata.ego_init_position = upd_pos
 
         # publish a pose message
         msg = PoseWithCovarianceStamped()
@@ -308,18 +349,18 @@ class AWSIMLabsSimulation(simulators.Simulation):
 
         self.ego_init_pose.pose.position.x = upd_pos.x
         self.ego_init_pose.pose.position.y = upd_pos.y
-        self.ego_init_pose.pose.position.z = upd_pos.z
+        self.ego_init_pose.pose.position.z = upd_pos.z + 0.5
 
         # Convert heading (yaw) to quaternion
         # don't forget to add 90deg
-        quaternion = utils.yaw_to_quaternion(ego_obj.heading)
+        quaternion = utils.yaw_to_quaternion(utils.to_ros_heading_angle(ego_obj.heading))
         print(f"Ego quaternion: {quaternion}")
         self.ego_init_pose.pose.orientation = quaternion
 
         cov = [0.0] * 36
-        cov[0] = 0.25  # x
-        cov[7] = 0.25  # y
-        cov[35] = 0.01  # yaw
+        cov[0] = 1e-4  # x
+        cov[7] = 1e-4  # y
+        cov[35] = 1e-4  # yaw
         self.ego_init_pose.covariance = cov
         msg.pose = self.ego_init_pose
 
@@ -433,7 +474,7 @@ class AWSIMLabsSimulation(simulators.Simulation):
         euler_angles = utils.ros2scenic_position(kinematics.pose.rotation)
 
         elevation = kinematics.pose.position.z
-        heading = normalizeAngle(kinematics.pose.rotation.z)
+        heading = utils.to_scenic_heading_angle(kinematics.pose.rotation.z)
         speed = math.hypot(*linear_velocity)
         angular_velocity = utils.ros2scenic_position(kinematics.twist.angular)
         angularSpeed = kinematics.twist.angular.z

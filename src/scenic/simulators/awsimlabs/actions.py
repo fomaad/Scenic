@@ -53,13 +53,14 @@ class SetDestinationAction(Action):
         print(f'Original goal: {self.dest.position}, heading angle {self.dest.heading * 180 / math.pi}')
         upd_pos = simulation.simulator.network.correct_elevation(self.dest)
         print(f'Corrected goal: {upd_pos}')
+        simulation.metadata.ego_goal_position = upd_pos
 
         msg = PoseStamped()
         msg.header.stamp = simulation.simulator.node.get_clock().now().to_msg()
         msg.header.frame_id = 'map'
         msg.pose.position = utils.scenic_point_to_ros_point(upd_pos)
 
-        quaternion = utils.yaw_to_quaternion(normalizeAngle(self.dest.heading))
+        quaternion = utils.yaw_to_quaternion(utils.to_ros_heading_angle(self.dest.heading))
         msg.pose.orientation = quaternion
 
         simulation.simulator.ego_goal_publisher.publish(msg)
@@ -91,6 +92,9 @@ class SetMaxSpeedAction(Action):
 
     def applyTo(self, obj, simulation):
         is_max_speed_defined = self.max_speed is not None
+        if is_max_speed_defined:
+            simulation.metadata.ego_target_speed = self.max_speed
+
         if is_max_speed_defined and not simulation._destroyed:
             vel_limit_msg = VelocityLimit()
             vel_limit_msg.max_velocity = float(self.max_speed)
@@ -163,13 +167,17 @@ class FollowWaypointsAction(Action):
         ros_wps = []
         print("[INFO] Original waypoints: ")
         for waypoint in self.waypoints:
-            print(f"{waypoint.position}, heading: {waypoint.toHeading()}")
+            print(f"{waypoint.position}, heading: {waypoint.heading}")
             corrected_position = simulation.simulator.network.correct_elevation(waypoint)
             ros_wps.append(utils.scenic_point_to_dict(corrected_position))
 
         print("[INFO] Corrected waypoints: ")
         for waypoint in ros_wps:
             print(f"{waypoint}")
+
+        if is_speed_defined:
+            simulation.metadata.cutin_npc_target_speed = self.target_speed
+        simulation.metadata.cutin_waypoints = ros_wps
 
         my_dict = {
             "target": npc_obj.name,

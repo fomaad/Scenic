@@ -25,6 +25,7 @@ class AWSIMObject:
     """
     name: string
     isVehicle: bool
+    visibleDistance: 200
 
 class Vehicle(AWSIMObject): 
     """
