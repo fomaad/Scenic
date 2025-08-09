@@ -6,6 +6,7 @@ import carla as _carla
 
 from scenic.domains.driving.actions import *
 import scenic.simulators.carla.utils.utils as _utils
+from scenic.simulators.carla.PCLA import PCLA
 
 ################################################
 # Actions available to all carla.Actor objects #
@@ -23,6 +24,17 @@ class SetAngularVelocityAction(Action):
         yAngularVel = self.angularVel * _math.sin(obj.heading)
         newAngularVel = _utils.scalarToCarlaVector3D(xAngularVel, yAngularVel)
         obj.carlaActor.set_angular_velocity(newAngularVel)
+
+class NeatAutonomousDrivingAction(Action):
+    def __init__(self, pcla, ego_vehicle):
+        self.pcla = pcla
+        self.ego_vehicle = ego_vehicle
+
+    def applyTo(self, obj, sim):
+        world = sim.world
+        ego_action = self.pcla.get_action()
+        self.ego_vehicle.apply_control(ego_action)
+        world.tick()
 
 
 class SetTransformAction(Action):  # TODO eliminate

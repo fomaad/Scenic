@@ -62,3 +62,27 @@ behavior CrossingBehavior(reference_actor, min_speed=1, threshold=10, final_spee
         do WalkForwardBehavior(final_speed)
     elif isinstance(self, Steers):
         take SetSpeedAction(final_speed)
+
+behavior NeatAutonomousDrivingBehavior():
+    sim = simulation()
+    client = sim.client
+    world = sim.world
+
+    vehicle_spawn_points = world.get_map().get_spawn_points()
+
+    # reset ego position
+    ego_actor = self.carlaActor
+    ego_actor.set_transform(vehicle_spawn_points[31])
+    print(vehicle_spawn_points[31])
+
+
+    world.tick()
+
+    agent = "neat_neat"
+    route = "./sampleRoute.xml"
+    pcla = PCLA(agent, ego_actor, route, client)
+
+    action = NeatAutonomousDrivingAction(pcla, ego_actor)
+    while True:
+        print(self.position)
+        take action
